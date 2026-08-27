@@ -1,0 +1,16 @@
+[project]
+name = "tezgah"
+version = "0.1.0"
+description = "A small, executor-agnostic pipeline engine that statically validates flow graphs built from Python functions before running them."
+requires-python = ">=3.13"
+dependencies = []
+
+[project.optional-dependencies]
+dask = ["dask[distributed]>=2024.0.0"]
+
+[dependency-groups]
+dev = ["pytest>=8.0", "dask[distributed]>=2024.0.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
