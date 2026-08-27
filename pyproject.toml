@@ -2,8 +2,26 @@
 name = "tezgah"
 version = "0.1.0"
 description = "A small, executor-agnostic pipeline engine that statically validates flow graphs built from Python functions before running them."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "hanci" }]
 requires-python = ">=3.13"
+keywords = ["pipeline", "dag", "workflow", "dataflow", "parallel"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = []
+
+[project.urls]
+Repository = "https://github.com/dboncukcu/tezgah"
+Author = "https://pypi.org/user/hanci/"
 
 [project.optional-dependencies]
 dask = ["dask[distributed]>=2024.0.0"]
