@@ -36,6 +36,7 @@ report = run(pipe, inputs={"log_dir": "logs/", "config": cfg}, executor="thread"
 - [The five building blocks](#the-five-building-blocks)
 - [Static validation](#static-validation)
 - [Execution model](#execution-model)
+- [Runtime, in pictures](#runtime-in-pictures)
 - [Executors](#executors)
 - [Node-level executors (resource locking)](#node-level-executors-resource-locking)
 - [Events and observability](#events-and-observability)
@@ -318,6 +319,120 @@ Node statuses: `ok`, `failed`, `skipped` (`when` was false), `upstream_failed` (
 - `N` → at most N in flight
 - `True` → window equals `workers` ("pool saturation"; deliberate guardrail — see Architecture notes)
 
+## Runtime, in pictures
+
+The timelines below are the runtime semantics of `run()`. Every picture is asserted by tests: timings in `tests/test_thread.py`, window equality and collection order in `tests/test_thread.py` and `tests/test_dask.py`.
+
+### One graph, two timelines
+
+List order never decides anything — edges do. The same graph under different executors:
+
+```text
+graph:                       (every step takes ~t)
+
+  read_logs --+-> parse_errors --+
+              |                  +-> merge
+              +-> parse_timings -+
+
+executor="seri" (default):          time -------------------------->
+
+  read_logs       ####
+  parse_errors         ####
+  parse_timings             ####
+  merge                          ####
+  total: 4t
+
+executor="thread", workers=2:      time ---------------->
+
+  read_logs       ####
+  parse_errors         ####        <- both edges were satisfied the
+  parse_timings         ####       <- moment read_logs finished; two
+  merge                      ####     workers -> side by side
+  total: 3t
+```
+
+`parse_errors` and `parse_timings` never touch each other's outputs; that absence of an edge is what puts them on separate workers.
+
+### Submit is not run
+
+`submit()` hands work to a queue and returns immediately. The `workers` bound applies to what *runs*, not to what is *submitted*:
+
+```text
+workers=2, three independent steps ready at once: S1 S2 S3
+
+submit(S1)   submit(S2)   submit(S3)        submit returns immediately
+    |            |            |
+    v            v            v
+   S1           S2          [ S3 ]          RUNNING     WAITING
+ worker1      worker2        queue
+
+worker1 finishes S1 --> picks up S3 from the queue.
+At no moment do three leaves run.
+```
+
+### Map windows
+
+```text
+Map(..., parallel=3) with workers=2, over [n0..n4]
+
+          t0      t1      t2      t3
+  w1     n0 ##   n2 ##   n4 ##
+  w2     n1 ##   n3 ##
+
+  in flight (submitted, not finished):  {n0,n1,n2} -> {n2,n3,n4} -> ...
+  window  = at most 3 in flight
+  workers = at most 2 actually running
+
+  collect = [r0, r1, r2, r3, r4]     input order, always.
+                                      (r3 may finish before r2; it still
+                                       lands at index 3)
+```
+
+### Where waiting happens: two pools
+
+Containers wait; leaves compute. Waiting happens in a place where it blocks no one:
+
+```text
+run(..., executor="thread", workers=N)
+
+  containers (Pipeline / Map / Loop / Branch .execute)
+      each runs in its own spawned thread
+      their job is to wait; a parked thread costs memory, not CPU,
+      and holds no pool slot
+              |
+              |  submit(leaf)
+              v
+  work pool: N workers
+      only user functions run here
+      they never wait for anything; they always finish
+
+
+  why the split — if containers ran INSIDE the bounded pool:
+
+    w1: [ Pipeline A -- waiting for its children ]   slot held forever
+    w2: [ Pipeline B -- waiting for its children ]   slot held forever
+    queue: A.c1, A.c2, B.c1, ...                     never gets a worker
+    => deadlock
+
+  tezgah's rule: waiters hold no pool slots. The waiting graph mirrors
+  the node graph, which validation proved acyclic -> no deadlock, by
+  construction rather than by discipline.
+```
+
+### Loop turns
+
+Turns cannot overlap by definition — turn *i+1* consumes turn *i*'s carry:
+
+```text
+  carry:  seed --> [turn 0] --> [turn 1] --> [turn 2] --> outputs (final carry)
+                    t0 ####      t1 ####      t2 ####
+
+  trace:              e0         e0,e1       e0,e1,e2      (one value per turn)
+
+  until is checked after every turn: the loop stops the moment it fires;
+  max_iter is the hard bound either way.
+```
+
 ## Executors
 
 | name | backed by | use for |
@@ -497,4 +612,4 @@ tezgah/
   tests/
 ```
 
-License: TBD.
+License: MIT — see [LICENSE](LICENSE).
