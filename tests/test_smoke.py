@@ -3,6 +3,7 @@ from functools import partial
 
 import pytest
 
+import tezgah
 from tezgah import (
     Branch,
     Loop,
@@ -31,6 +32,11 @@ def use(y):
 
 def numbers():
     return [3, 1, 2]
+
+
+def test_version_available():
+    assert tezgah.__version__
+    assert isinstance(tezgah.__version__, str)
 
 
 def test_defaults_from_fn():
