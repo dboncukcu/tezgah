@@ -188,5 +188,10 @@ def test_dask_name_without_dask_installed():
 
 def test_unknown_executor_lists_options():
     pipe = Pipeline(nodes=[Step(lambda x: x, inputs=["x"], outputs=["y"])], inputs=["x"], outputs=["y"])
-    with pytest.raises(ValueError, match="'seri', 'thread', 'dask'"):
+    with pytest.raises(ValueError, match="'serial', 'thread', 'dask'"):
         run(pipe, inputs={"x": 1}, executor="warp")
+
+
+def test_serial_runs_inline():
+    pipe = Pipeline(nodes=[Step(lambda x: x + 1, inputs=["x"], outputs=["y"])], inputs=["x"], outputs=["y"])
+    assert run(pipe, inputs={"x": 1}, executor="serial").outputs == {"y": 2}

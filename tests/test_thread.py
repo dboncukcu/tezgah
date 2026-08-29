@@ -71,7 +71,7 @@ def test_thread_matches_serial():
     def build():
         return Pipeline(
             nodes=[
-                Step(lambda: "bir iki\nuc dort bes", outputs=["text"], name="source"),
+                Step(lambda: "one two\nthree four five", outputs=["text"], name="source"),
                 Step(lambda text: len(text.split()), inputs=["text"], outputs=["words"], name="words"),
                 Step(lambda text: len(text.splitlines()), inputs=["text"], outputs=["lines"], name="lines"),
                 Step(lambda words, lines: f"{words}/{lines}", inputs=["words", "lines"], outputs=["merged"], name="merge"),
@@ -83,10 +83,10 @@ def test_thread_matches_serial():
         )
 
     inputs = {}
-    seri = run(build(), inputs=inputs)
+    serial = run(build(), inputs=inputs)
     threaded = run(build(), inputs=inputs, executor="thread", workers=3)
     threaded_again = run(build(), inputs=inputs, executor="thread", workers=2)
-    assert seri.outputs == threaded.outputs == threaded_again.outputs
+    assert serial.outputs == threaded.outputs == threaded_again.outputs
 
 
 def test_worker_limit_respected():

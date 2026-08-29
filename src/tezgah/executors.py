@@ -2,7 +2,7 @@ import os
 
 
 def resolve_executor(executor, workers):
-    if executor is None or executor == "seri":
+    if executor is None or executor == "serial":
         return None
     if executor == "thread":
         from concurrent import futures
@@ -12,7 +12,7 @@ def resolve_executor(executor, workers):
         return DaskPool(workers=workers)
     if hasattr(executor, "submit"):
         return executor
-    raise ValueError(f"unknown executor {executor!r}, available: 'seri', 'thread', 'dask' or any object with submit()")
+    raise ValueError(f"unknown executor {executor!r}, available: 'serial', 'thread', 'dask' or any object with submit()")
 
 
 class DaskPool:

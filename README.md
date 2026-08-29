@@ -58,18 +58,24 @@ Pipeline scripts rot because structure lives in code order, validation happens a
 
 ## Install
 
-Requires Python 3.13+ and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.13 or newer.
+
+```bash
+pip install tezgah
+```
+
+Optional Dask executor support:
+
+```bash
+pip install 'tezgah[dask]'
+```
+
+From source, with [uv](https://docs.astral.sh/uv/):
 
 ```bash
 git clone https://github.com/dboncukcu/tezgah.git
 cd tezgah
-uv sync                      # core + dev (pytest, dask for tests)
-```
-
-Optional Dask support for library users:
-
-```bash
-uv add 'tezgah[dask]'
+uv sync
 ```
 
 Check the installation:
@@ -77,10 +83,8 @@ Check the installation:
 ```python
 >>> import tezgah
 >>> tezgah.__version__
-'0.1.0'
+'0.1.1'
 ```
-
-The version is read from package metadata (your `pyproject.toml` is the single source of truth; it is never duplicated in code).
 
 ## Core concepts
 
@@ -297,7 +301,7 @@ run(pipe, inputs=None, executor=None, workers=None, record_dir=None)
 ```
 
 - `inputs` — must match the pipeline's declared inputs exactly (missing/unexpected keys raise before the run).
-- `executor` — `"seri"` (default), `"thread"`, `"dask"`, or any object with `submit()`.
+- `executor` — `"serial"` (default), `"thread"`, `"dask"`, or any object with `submit()`.
 - `workers` — pool size for thread/dask; defaults to `os.cpu_count()`.
 - `record_dir` — write `events.jsonl`, `run.json`, `stdout.txt`, `stderr.txt` here.
 
@@ -334,7 +338,7 @@ graph:                       (every step takes ~t)
               |                  +-> merge
               +-> parse_timings -+
 
-executor="seri" (default):          time -------------------------->
+executor="serial" (default):        time -------------------------->
 
   read_logs       ####
   parse_errors         ####
@@ -437,19 +441,19 @@ Turns cannot overlap by definition — turn *i+1* consumes turn *i*'s carry:
 
 | name | backed by | use for |
 |---|---|---|
-| `"seri"` | inline calls | default; debugging; full determinism |
+| `"serial"` | inline calls | default; debugging; full determinism |
 | `"thread"` | `ThreadPoolExecutor` | independent branches; I/O-bound work; numpy/pandas/torch (C kernels release the GIL) |
 | `"dask"` | `LocalCluster` (processes) | pure-Python heavy compute across cores |
 | instance | anything with `submit()` | your own pool |
 
 ```python
-run(pipe, inputs=..., executor="seri")
+run(pipe, inputs=..., executor="serial")
 run(pipe, inputs=..., executor="thread", workers=8)
 run(pipe, inputs=..., executor="dask", workers=4)
 run(pipe, inputs=..., executor=my_pool)          # instance: you own its lifetime
 ```
 
-Process boundaries (Dask): everything crossing the boundary is pickled — use module-level functions as `Step` fns, and pass references (file paths) instead of large data. The rule of thumb from the el kitabı applies: process parallelism pays off only when `gained_compute > serialization + transport + process_spawn`.
+Process boundaries (Dask): everything crossing the boundary is pickled — use module-level functions as `Step` fns, and pass references (file paths) instead of large data. The usual rule of thumb applies: process parallelism pays off only when `gained_compute > serialization + transport + process_spawn`.
 
 **Writing your own pool** — the whole protocol:
 
