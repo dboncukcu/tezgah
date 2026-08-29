@@ -61,7 +61,7 @@ Pipeline scripts rot because structure lives in code order, validation happens a
 Requires Python 3.13+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-git clone git@github.com:dboncukcu/tezgah.git
+git clone https://github.com/dboncukcu/tezgah.git
 cd tezgah
 uv sync                      # core + dev (pytest, dask for tests)
 ```
