@@ -210,15 +210,16 @@ If one iteration fails, no new ones start, in-flight iterations finish, and the 
 ### Loop — sequential turns with carried state
 
 ```python
-Loop(body, carry, until=None, max_iter=None, trace=None,
+Loop(body, carry, range, index=None, until=None, trace=None,
      outputs=None, executor=None, name="loop", wait_for=None)
 ```
 
 Turns are **never** parallelized — the dependency between turns is the point. The parameters:
 
 - `carry`: `{carry_name: parent_frame_key}` — state passed turn to turn. **Closure rule:** the body must export every carry key; turn *i*'s output is turn *i+1*'s input.
+- `range`: **mandatory** iteration source and termination guarantee, with Python semantics: an int, `[start, stop]`, `[start, stop, step]`, or a `range` object. Exhausting it without `until` firing is a normal end, not an error; an empty range runs zero turns and exports the initial carry.
+- `index`: optional name; each turn the current range value enters the body frame under it, so `range=[1, 81], index="epoch"` reads exactly like `for epoch in range(1, 81)`. The loop owns the numbering: start the range wherever your domain counts from.
 - `until`: called after each turn with named parameters looked up in that turn's exports; `True` ends the loop.
-- `max_iter`: **mandatory** upper bound — the termination guarantee. Reaching it without `until` firing is a normal end, not an error.
 - `trace`: `{inner_key: parent_key}` — accumulates one value per turn into a list.
 - `outputs`: `{carry_name: parent_key}` — exports the final carry values; keys are limited to carry names.
 
@@ -233,8 +234,8 @@ refine = Pipeline(
 
 Loop(body=refine,
      carry={"candidate": "seed_value"},
+     range=1000,
      until=lambda err: err < 1e-6,
-     max_iter=1000,
      trace={"err": "err_history"},
      outputs={"candidate": "best"})
 ```
@@ -434,7 +435,7 @@ Turns cannot overlap by definition — turn *i+1* consumes turn *i*'s carry:
   trace:              e0         e0,e1       e0,e1,e2      (one value per turn)
 
   until is checked after every turn: the loop stops the moment it fires;
-  max_iter is the hard bound either way.
+  the range is the hard bound either way.
 ```
 
 ## Executors

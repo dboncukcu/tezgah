@@ -334,7 +334,7 @@ def test_loop_until_convergence_with_trace():
                 body=body,
                 carry={"candidate": "seed_value"},
                 until=lambda err: err < 0.001,
-                max_iter=1000,
+                range=1000,
                 trace={"err": "err_history"},
                 outputs={"candidate": "best"},
             )
@@ -349,7 +349,7 @@ def test_loop_until_convergence_with_trace():
     assert 0 < len(history) < 1000
 
 
-def test_loop_max_iter_without_until():
+def test_loop_range_without_until():
     body = Pipeline(
         nodes=[Step(lambda c: c + 1, inputs=["c"], outputs=["c_next"], name="bump")],
         inputs=["c"],
@@ -357,7 +357,7 @@ def test_loop_max_iter_without_until():
         name="body",
     )
     pipe = Pipeline(
-        nodes=[Loop(body=body, carry={"c": "start"}, max_iter=5, outputs={"c": "final"})],
+        nodes=[Loop(body=body, carry={"c": "start"}, range=5, outputs={"c": "final"})],
         inputs=["start"],
         outputs=["final"],
     )
@@ -367,7 +367,7 @@ def test_loop_max_iter_without_until():
 def test_loop_step_body_direct_carry():
     pipe = Pipeline(
         nodes=[Loop(body=Step(lambda total: total + total, inputs=["total"], outputs=["total"], name="double_up"),
-                    carry={"total": "seed"}, max_iter=3, outputs={"total": "grown"})],
+                    carry={"total": "seed"}, range=3, outputs={"total": "grown"})],
         inputs=["seed"],
         outputs=["grown"],
     )
@@ -377,7 +377,7 @@ def test_loop_step_body_direct_carry():
 def test_loop_broadcast_constant():
     body = Step(lambda total, inc: total + inc, inputs=["total", "inc"], outputs=["total"], name="add_up")
     pipe = Pipeline(
-        nodes=[Loop(body=body, carry={"total": "seed"}, max_iter=4, outputs={"total": "sum"})],
+        nodes=[Loop(body=body, carry={"total": "seed"}, range=4, outputs={"total": "sum"})],
         inputs=["seed", "inc"],
         outputs=["sum"],
     )
@@ -389,7 +389,7 @@ def test_loop_body_failure():
         raise RuntimeError("turn failed")
 
     pipe = Pipeline(
-        nodes=[Loop(body=Step(blow, inputs=["total"], outputs=["total"]), carry={"total": "t"}, max_iter=3, outputs={"total": "out"})],
+        nodes=[Loop(body=Step(blow, inputs=["total"], outputs=["total"]), carry={"total": "t"}, range=3, outputs={"total": "out"})],
         inputs=["t"],
         outputs=["out"],
     )
@@ -400,7 +400,7 @@ def test_loop_body_failure():
 
 def test_loop_validation():
     body = Step(lambda total: total + 1, inputs=["total"], outputs=["total"], name="inc")
-    with pytest.raises(TypeError, match="max_iter"):
+    with pytest.raises(TypeError, match="range"):
         Loop(body=body, carry={"total": "t"})
 
     narrowed = Pipeline(
@@ -409,12 +409,12 @@ def test_loop_validation():
         outputs={"other": "other"},
         name="body",
     )
-    pipe = Pipeline(nodes=[Loop(body=narrowed, carry={"c": "x"}, max_iter=3)], inputs=["x"], outputs=[])
+    pipe = Pipeline(nodes=[Loop(body=narrowed, carry={"c": "x"}, range=3)], inputs=["x"], outputs=[])
     with pytest.raises(ValidationError, match="does not export carry key 'c'"):
         pipe.validate()
 
     pipe = Pipeline(
-        nodes=[Loop(body=body, carry={"total": "t"}, until=lambda q: True, max_iter=3)],
+        nodes=[Loop(body=body, carry={"total": "t"}, until=lambda q: True, range=3)],
         inputs=["t"],
         outputs=[],
     )
@@ -422,7 +422,7 @@ def test_loop_validation():
         pipe.validate()
 
     pipe = Pipeline(
-        nodes=[Loop(body=body, carry={"total": "t"}, max_iter=3, trace={"nope": "hist"})],
+        nodes=[Loop(body=body, carry={"total": "t"}, range=3, trace={"nope": "hist"})],
         inputs=["t"],
         outputs=["hist"],
     )
@@ -434,12 +434,61 @@ def test_loop_validation():
 
     widened = Step(widen, inputs=["total"], outputs=["total", "extra"], name="widen")
     pipe = Pipeline(
-        nodes=[Loop(body=widened, carry={"total": "t"}, max_iter=3, outputs={"extra": "o"})],
+        nodes=[Loop(body=widened, carry={"total": "t"}, range=3, outputs={"extra": "o"})],
         inputs=["t"],
         outputs=["o"],
     )
     with pytest.raises(ValidationError, match="not a carry key"):
         pipe.validate()
+
+
+def test_loop_range_value_reaches_the_body():
+    body = Step(lambda total, epoch: total + epoch, inputs=["total", "epoch"],
+                outputs=["total"], name="add")
+    pipe = Pipeline(
+        nodes=[Loop(body=body, carry={"total": "seed"}, range=[1, 4], index="epoch",
+                    trace={"total": "totals"}, outputs={"total": "sum"})],
+        inputs=["seed"],
+        outputs=["sum", "totals"],
+    )
+    report = run(pipe, inputs={"seed": 0})
+    assert report.outputs["sum"] == 6
+    assert report.outputs["totals"] == [1, 3, 6]
+
+
+def test_loop_range_step_and_python_range():
+    body = Step(lambda seen, k: seen + [k], inputs=["seen", "k"], outputs=["seen"], name="collect")
+    pipe = Pipeline(
+        nodes=[Loop(body=body, carry={"seen": "start"}, range=[0, 10, 3], index="k",
+                    outputs={"seen": "ks"})],
+        inputs=["start"],
+        outputs=["ks"],
+    )
+    assert run(pipe, inputs={"start": []}).outputs == {"ks": [0, 3, 6, 9]}
+
+    ranged = Loop(body=body, carry={"seen": "start"}, range=range(4), index="k")
+    assert list(ranged.turns) == [0, 1, 2, 3]
+
+
+def test_loop_empty_range_runs_zero_turns():
+    body = Step(lambda seen, k: seen + [k], inputs=["seen", "k"], outputs=["seen"], name="collect")
+    pipe = Pipeline(
+        nodes=[Loop(body=body, carry={"seen": "start"}, range=0, index="k",
+                    outputs={"seen": "ks"})],
+        inputs=["start"],
+        outputs=["ks"],
+    )
+    assert run(pipe, inputs={"start": []}).outputs == {"ks": []}
+
+
+def test_loop_bad_range_and_index_collision():
+    body = Step(lambda total: total + 1, inputs=["total"], outputs=["total"], name="inc")
+    with pytest.raises(TypeError, match="range"):
+        Loop(body=body, carry={"total": "t"}, range="ten")
+    with pytest.raises(ValueError, match="step"):
+        Loop(body=body, carry={"total": "t"}, range=[0, 5, 0])
+    with pytest.raises(ValueError, match="index and carry"):
+        Loop(body=body, carry={"total": "t"}, range=3, index="total")
 
 
 def test_branch_dispatch():
@@ -661,7 +710,7 @@ def test_record_dir(tmp_path):
 def test_loop_events_and_traces_in_run_json(tmp_path):
     body = Step(lambda total: total + 1, inputs=["total"], outputs=["total"], name="inc")
     pipe = Pipeline(
-        nodes=[Loop(body=body, carry={"total": "seed"}, max_iter=2,
+        nodes=[Loop(body=body, carry={"total": "seed"}, range=2,
                     trace={"total": "totals"}, outputs={"total": "out"}, name="grow")],
         inputs=["seed"],
         outputs=["out", "totals"],

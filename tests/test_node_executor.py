@@ -150,7 +150,7 @@ def test_loop_executor_used_for_body():
     pool = TrackedPool()
     pipe = Pipeline(
         nodes=[Loop(body=Step(lambda total: total + 1, inputs=["total"], outputs=["total"], name="inc"),
-                    carry={"total": "seed"}, max_iter=3, outputs={"total": "out"}, executor=pool)],
+                    carry={"total": "seed"}, range=3, outputs={"total": "out"}, executor=pool)],
         inputs=["seed"],
         outputs=["out"],
     )
@@ -224,7 +224,7 @@ def test_node_executor_string_rejected():
     with pytest.raises(TypeError, match="not a string"):
         Map(Step(lambda n: n, inputs=["n"], outputs=["o"]), over="nums", executor="thread")
     with pytest.raises(TypeError, match="not a string"):
-        Loop(body=Step(lambda t: t, inputs=["t"], outputs=["t"]), carry={"t": "t"}, max_iter=1, executor="thread")
+        Loop(body=Step(lambda t: t, inputs=["t"], outputs=["t"]), carry={"t": "t"}, range=1, executor="thread")
     with pytest.raises(TypeError, match="not a string"):
         Branch(lambda: "a", cases={"a": Step(lambda: 1, outputs=["o"])}, executor="thread")
 

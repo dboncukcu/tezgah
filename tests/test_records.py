@@ -12,7 +12,7 @@ def build_pipe():
             Loop(
                 body=Step(lambda total: total + 1, inputs=["total"], outputs=["total"], name="inc"),
                 carry={"total": "seed"},
-                max_iter=2,
+                range=2,
                 trace={"total": "totals"},
                 outputs={"total": "out"},
                 name="grow",

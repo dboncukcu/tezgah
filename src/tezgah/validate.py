@@ -127,6 +127,11 @@ def _check_loop(node, path, problems, unused, ancestors):
 
     body_writes = set(node.body.writes())
     body_reads = set(node.body.reads())
+    if node.index:
+        if node.index in body_writes:
+            problems.append(f"{path}: body writes the loop index key '{node.index}'")
+        if node.index not in body_reads:
+            unused.append(f"{path}: loop index '{node.index}' is never read by the body")
     for name in node.carry:
         if name not in body_writes:
             problems.append(f"{path}: body does not export carry key '{name}'")
