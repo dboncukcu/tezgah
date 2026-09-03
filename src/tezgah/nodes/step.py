@@ -22,7 +22,7 @@ class Step(Node):
     leaf = True
 
     def __init__(self, fn, inputs=None, outputs=None, name=None, when=None,
-                 wait_for=None, executor=None, retries=0, wait=0.0):
+                 wait_for=None, executor=None, retries=0, wait=0.0, unpack=False):
         if not callable(fn):
             raise TypeError(f"Step fn must be callable, got {type(fn).__name__}")
         self.fn = fn
@@ -50,6 +50,13 @@ class Step(Node):
         if len(set(outputs)) != len(outputs):
             raise ValueError(f"{label}: duplicate keys in outputs {outputs}")
         self.outputs = outputs
+        if not isinstance(unpack, bool):
+            raise TypeError(f"{label}: unpack must be a bool, got {type(unpack).__name__}")
+        if unpack and not outputs:
+            raise ValueError(f"{label}: unpack=True needs at least one output to pick")
+        if not unpack and len(outputs) > 1:
+            raise ValueError(f"{label}: {len(outputs)} outputs declared; pass unpack=True so the returned mapping is picked apart, one output otherwise")
+        self.unpack = unpack
 
         if when is not None and not callable(when):
             raise TypeError(f"{label}: when must be callable, got {type(when).__name__}")
@@ -91,13 +98,15 @@ class Step(Node):
 
         if not self.outputs:
             return "ok", {}, ms, {}
-        if len(self.outputs) == 1:
+        if not self.unpack:
             return "ok", {self.outputs[0]: result}, ms, {}
         if not isinstance(result, dict):
             raise ContractError(
-                f"{self.name}: {len(self.outputs)} outputs declared, fn must return a mapping, got {type(result).__name__}"
+                f"{self.name}: unpack=True expects a mapping with keys {self.outputs}, got {type(result).__name__}"
             )
         missing = [key for key in self.outputs if key not in result]
         if missing:
             raise ContractError(f"{self.name}: returned mapping is missing output keys {missing}")
-        return "ok", {key: result[key] for key in self.outputs}, ms, {}
+        dropped = [key for key in result if key not in self.outputs]
+        extra = {"dropped": dropped} if dropped else {}
+        return "ok", {key: result[key] for key in self.outputs}, ms, extra

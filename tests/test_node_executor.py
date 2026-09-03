@@ -117,7 +117,7 @@ def test_map_executor_used_for_body():
         nodes=[
             Step(lambda: [1, 2, 3], outputs=["nums"], name="src"),
             Map(Step(lambda n: n * 2, inputs=["n"], outputs=["out"], name="double"),
-                over="nums", item="n", collect="outs", parallel=3, executor=pool),
+                over="nums", item="n", collect={"out": "outs"}, parallel=3, executor=pool),
         ],
         outputs=["outs"],
     )
@@ -134,7 +134,7 @@ def test_map_body_executor_wins_over_map_executor():
         nodes=[
             Step(lambda: [1, 2], outputs=["nums"], name="src"),
             Map(Step(lambda n: n * 2, inputs=["n"], outputs=["out"], name="double", executor=body_pool),
-                over="nums", item="n", collect="outs", executor=map_pool),
+                over="nums", item="n", collect={"out": "outs"}, executor=map_pool),
         ],
         outputs=["outs"],
     )

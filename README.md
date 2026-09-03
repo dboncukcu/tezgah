@@ -14,7 +14,7 @@ pipe = Pipeline(
         Step(parse_timings, inputs=["raw"], outputs=["timings"]),
         Step(merge, inputs=["errors", "timings"], outputs=["table"]),
         Map(body=Step(enrich, inputs=["row", "config"]), over="table",
-            item="row", collect="enriched", parallel=4),
+            item="row", collect={"enrich": "enriched"}, parallel=4),
         Step(write_report, inputs=["enriched"], outputs=["report_path"]),
     ],
     inputs=["log_dir", "config"],
@@ -109,7 +109,7 @@ A node becomes ready only when *all* incoming edges are satisfied (AND semantics
 
 ```python
 Step(fn, inputs=None, outputs=None, name=None, when=None,
-     wait_for=None, executor=None, retries=0, wait=0.0)
+     wait_for=None, executor=None, retries=0, wait=0.0, unpack=False)
 ```
 
 `fn` is any callable. Everything else is optional wiring.
@@ -124,22 +124,24 @@ Step(fn, inputs=None, outputs=None, name=None, when=None,
 
 With an explicit form, parameters with defaults may stay unbound (the Python default applies). Binding a parameter the function does not have is a static error (unless the function takes `**kwargs`).
 
-**Output rules:**
+**Output rules.** `unpack` says how the return value meets `outputs`; the number of outputs never decides anything.
 
-| `outputs` | function must return | written to the frame |
-|---|---|---|
-| omitted | anything | single key `fn.__name__` |
-| one key | anything | value written directly |
-| many keys | a mapping containing those keys | each key separately; missing keys are a runtime `ContractError` |
-| `[]` | anything (return value discarded) | nothing — a side-effect step |
+| `unpack` | `outputs` | function must return | written to the frame |
+|---|---|---|---|
+| `False` (default) | omitted | anything | the whole value under `fn.__name__` |
+| `False` | one key | anything, a mapping included | the whole value under that key |
+| `False` | many keys | — | construction-time `ValueError`: one value cannot be wrapped under several names |
+| `True` | one or many keys | a mapping containing those keys | each declared key picked by name; a missing key is a runtime `ContractError` |
+| any | `[]` | anything (return value discarded) | nothing — a side-effect step |
 
-Extra keys in a returned mapping are tolerated but never written: undeclared values cannot leak into the frame.
+With `unpack=True`, keys the mapping carries beyond the declared outputs are not written; the run keeps going and the kernel raises an `UnusedOutputWarning` naming them, and the node record lists them under `dropped`. Undeclared values still cannot leak into the frame.
 
 ```python
 def split(a, b):
-    return {"q": a // b, "r": a % b, "extra": 0}   # "extra" is ignored
+    return {"q": a // b, "r": a % b, "extra": 0}
 
-Step(split, inputs=["a", "b"], outputs=["q", "r"])
+Step(split, inputs=["a", "b"], outputs=["q", "r"], unpack=True)   # q and r written, "extra" warned about
+Step(split, inputs=["a", "b"], outputs=["parts"])                  # parts = the whole mapping
 ```
 
 **when** — a condition callable allowed *only on side-effect steps* (`outputs=[]`). Its parameters are looked up in the frame; `False` marks the step `skipped` and `fn` is never called. Steps with outputs may not carry `when` — that would create "maybe present" keys.
@@ -199,11 +201,11 @@ Map(body, over, item="item", index=None, collect=None,
 ```python
 Map(body=Step(scale, inputs=["n", "factor"]),
     over="nums", item="n", index="i",
-    collect="scaled", parallel=4)
+    collect={"scale": "scaled"}, parallel=4)
 # scale(n=element, i=position, factor=parent_frame["factor"])  per element
 ```
 
-`collect` writes the result list to the parent frame. **Order is always input order, never completion order** — even with parallelism on, output is deterministic. A single-output body collects a list of values; a multi-output body collects a list of mappings. Without `collect`, results are discarded (side-effect map) and the validator warns.
+`collect` maps body outputs to parent keys, in data-flow direction like a pipeline's `outputs`: `{"scale": "scaled"}` gathers the body's `scale` value from every iteration into one list written as `scaled`; a list (`["scale"]`) keeps the names. Each collected key becomes its own list of plain values, one element per item. **Order is always input order, never completion order** — even with parallelism on, output is deterministic. A body output that is not collected is discarded and the validator warns; a `collect` key the body does not produce is a validation error.
 
 If one iteration fails, no new ones start, in-flight iterations finish, and the `Map` node fails.
 
@@ -227,7 +229,7 @@ The canonical refinement pattern (rename inside, remap at the boundary — requi
 
 ```python
 refine = Pipeline(
-    nodes=[Step(improve, inputs=["candidate"], outputs=["candidate_next", "err"])],
+    nodes=[Step(improve, inputs=["candidate"], outputs=["candidate_next", "err"], unpack=True)],
     inputs=["candidate"],
     outputs={"candidate_next": "candidate", "err": "err"},
 )
@@ -289,7 +291,7 @@ The rulebook:
 6. No dependency cycles (data + control edges, DFS with cycle path reported).
 7. Node names are unique per frame; no container contains itself.
 8. Loop closure: carry exported, `until`/`trace` keys exported, `outputs` ⊆ carry.
-9. Map: body does not write `item`/`index`/broadcast keys; `collect` set implies body outputs.
+9. Map: body does not write `item`/`index`/broadcast keys; every `collect` key is a body output.
 
 Unused outputs are **warnings, not errors** (`UnusedOutputWarning`). Value-dependent conditions (iterability, picklability) cannot be known statically and fail at runtime with explicit messages.
 
@@ -388,7 +390,7 @@ Map(..., parallel=3) with workers=2, over [n0..n4]
   window  = at most 3 in flight
   workers = at most 2 actually running
 
-  collect = [r0, r1, r2, r3, r4]     input order, always.
+  collected list = [r0, r1, r2, r3, r4]     input order, always.
                                       (r3 may finish before r2; it still
                                        lands at index 3)
 ```

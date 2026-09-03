@@ -126,19 +126,22 @@ def test_multi_output_mapping():
         return {"q": a // b, "r": a % b, "extra": 0}
 
     pipe = Pipeline(
-        nodes=[Step(split, inputs=["a", "b"], outputs=["q", "r"])],
+        nodes=[Step(split, inputs=["a", "b"], outputs=["q", "r"], unpack=True)],
         inputs=["a", "b"],
         outputs=["q", "r"],
     )
-    assert run(pipe, inputs={"a": 7, "b": 3}).outputs == {"q": 2, "r": 1}
+    with pytest.warns(UnusedOutputWarning, match=r"\['extra'\]"):
+        report = run(pipe, inputs={"a": 7, "b": 3})
+    assert report.outputs == {"q": 2, "r": 1}
+    assert report.tree["nodes"][0]["dropped"] == ["extra"]
 
 
 def test_multi_output_requires_mapping():
     def broken(a):
         return a
 
-    pipe = Pipeline(nodes=[Step(broken, inputs=["a"], outputs=["q", "r"])], inputs=["a"], outputs=["q", "r"])
-    with pytest.raises(RunError, match="must return a mapping"):
+    pipe = Pipeline(nodes=[Step(broken, inputs=["a"], outputs=["q", "r"], unpack=True)], inputs=["a"], outputs=["q", "r"])
+    with pytest.raises(RunError, match="expects a mapping"):
         run(pipe, inputs={"a": 1})
 
 
@@ -146,7 +149,7 @@ def test_multi_output_missing_key():
     def half(a):
         return {"q": a}
 
-    pipe = Pipeline(nodes=[Step(half, inputs=["a"], outputs=["q", "r"])], inputs=["a"], outputs=["q", "r"])
+    pipe = Pipeline(nodes=[Step(half, inputs=["a"], outputs=["q", "r"], unpack=True)], inputs=["a"], outputs=["q", "r"])
     with pytest.raises(RunError, match="missing output keys"):
         run(pipe, inputs={"a": 1})
 
@@ -215,7 +218,7 @@ def test_map_collect_order_and_broadcast():
     pipe = Pipeline(
         nodes=[
             Step(numbers, outputs=["nums"]),
-            Map(Step(scale, outputs=["scaled"]), over="nums", item="n", collect="scaled_list", name="scaler"),
+            Map(Step(scale, outputs=["scaled"]), over="nums", item="n", collect={"scaled": "scaled_list"}, name="scaler"),
         ],
         inputs=["factor"],
         outputs=["scaled_list"],
@@ -230,7 +233,7 @@ def test_map_index():
         nodes=[
             Step(numbers, outputs=["nums"]),
             Map(Step(lambda n, i: f"{i}:{n}", inputs=["n", "i"], outputs=["tagged"], name="tag"),
-                over="nums", item="n", index="i", collect="tags"),
+                over="nums", item="n", index="i", collect={"tagged": "tags"}),
         ],
         outputs=["tags"],
     )
@@ -244,13 +247,13 @@ def test_map_multi_output_body():
     pipe = Pipeline(
         nodes=[
             Step(numbers, outputs=["nums"]),
-            Map(Step(split, outputs=["double", "half"]), over="nums", item="n", collect="pairs"),
+            Map(Step(split, outputs=["double", "half"], unpack=True), over="nums", item="n",
+                collect={"double": "doubles", "half": "halves"}),
         ],
-        outputs=["pairs"],
+        outputs=["doubles", "halves"],
     )
     report = run(pipe, inputs={})
-    assert report.outputs["pairs"][0] == {"double": 6, "half": 1.5}
-    assert len(report.outputs["pairs"]) == 3
+    assert report.outputs == {"doubles": [6, 2, 4], "halves": [1.5, 0.5, 1.0]}
 
 
 def test_map_empty_collection():
@@ -260,7 +263,7 @@ def test_map_empty_collection():
     pipe = Pipeline(
         nodes=[
             Step(empty, outputs=["nums"]),
-            Map(Step(lambda n: n, inputs=["n"], outputs=["same"], name="echo"), over="nums", item="n", collect="out"),
+            Map(Step(lambda n: n, inputs=["n"], outputs=["same"], name="echo"), over="nums", item="n", collect={"same": "out"}),
         ],
         outputs=["out"],
     )
@@ -274,7 +277,7 @@ def test_map_over_not_iterable():
     pipe = Pipeline(
         nodes=[
             Step(five, outputs=["nums"]),
-            Map(Step(lambda n: n, inputs=["n"], outputs=["same"], name="echo"), over="nums", item="n", collect="out"),
+            Map(Step(lambda n: n, inputs=["n"], outputs=["same"], name="echo"), over="nums", item="n", collect={"same": "out"}),
         ],
         outputs=["out"],
     )
@@ -295,7 +298,7 @@ def test_map_pipeline_body():
     pipe = Pipeline(
         nodes=[
             Step(lambda: [" a ", "b "], outputs=["words"], name="words_src"),
-            Map(body=body, over="words", item="word", collect="normalized"),
+            Map(body=body, over="words", item="word", collect={"loud": "normalized"}),
         ],
         outputs=["normalized"],
     )
@@ -308,8 +311,8 @@ def test_nested_map():
             Step(lambda: [[1, 2], [3]], outputs=["rows"], name="rows_src"),
             Map(
                 body=Map(Step(lambda cell: cell * 2, inputs=["cell"], outputs=["doubled"], name="double_cell"),
-                         over="row", item="cell", collect="doubled_row", name="inner"),
-                over="rows", item="row", collect="matrix", name="outer",
+                         over="row", item="cell", collect={"doubled": "doubled_row"}, name="inner"),
+                over="rows", item="row", collect={"doubled_row": "matrix"}, name="outer",
             ),
         ],
         outputs=["matrix"],
@@ -323,7 +326,7 @@ def test_loop_until_convergence_with_trace():
         return {"candidate_next": nxt, "err": abs(nxt)}
 
     body = Pipeline(
-        nodes=[Step(improve, inputs=["candidate"], outputs=["candidate_next", "err"])],
+        nodes=[Step(improve, inputs=["candidate"], outputs=["candidate_next", "err"], unpack=True)],
         inputs=["candidate"],
         outputs={"candidate_next": "candidate", "err": "err"},
         name="refine",
@@ -432,7 +435,7 @@ def test_loop_validation():
     def widen(total):
         return {"total": total + 1, "extra": total}
 
-    widened = Step(widen, inputs=["total"], outputs=["total", "extra"], name="widen")
+    widened = Step(widen, inputs=["total"], outputs=["total", "extra"], name="widen", unpack=True)
     pipe = Pipeline(
         nodes=[Loop(body=widened, carry={"total": "t"}, range=3, outputs={"extra": "o"})],
         inputs=["t"],
@@ -651,7 +654,7 @@ def test_events_subscriber():
         nodes=[
             Step(lambda: [1, 2], outputs=["nums"], name="src"),
             Map(Step(lambda n: n + 1, inputs=["n"], outputs=["bumped"], name="bump"),
-                over="nums", item="n", collect="bumped_list", name="mapper"),
+                over="nums", item="n", collect={"bumped": "bumped_list"}, name="mapper"),
         ],
         outputs=["bumped_list"],
     )
@@ -676,7 +679,7 @@ def test_subscriber_error_does_not_break_run():
         nodes=[
             Step(lambda: [1, 2], outputs=["nums"], name="src"),
             Map(Step(lambda n: n + 1, inputs=["n"], outputs=["bumped"], name="bump"),
-                over="nums", item="n", collect="bumped_list", name="mapper"),
+                over="nums", item="n", collect={"bumped": "bumped_list"}, name="mapper"),
         ],
         outputs=["bumped_list"],
     )
@@ -852,7 +855,7 @@ def test_map_discarded_outputs_warn():
         inputs=["factor"],
         outputs=[],
     )
-    with pytest.warns(UnusedOutputWarning, match="discarded"):
+    with pytest.warns(UnusedOutputWarning, match="is not collected"):
         pipe.validate()
 
 
@@ -860,7 +863,7 @@ def test_map_body_writing_iteration_key_rejected():
     pipe = Pipeline(
         nodes=[
             Step(numbers, outputs=["nums"]),
-            Map(Step(lambda n: n, inputs=["n"], outputs=["n"], name="echo"), over="nums", item="n", collect="out"),
+            Map(Step(lambda n: n, inputs=["n"], outputs=["n"], name="echo"), over="nums", item="n", collect={"n": "out"}),
         ],
         outputs=["out"],
     )
@@ -907,3 +910,83 @@ def test_retry_exhausted():
     with pytest.raises(RunError):
         run(pipe, inputs={})
     assert len(calls) == 2
+
+
+def test_unpack_picks_a_single_key_mapping():
+    pipe = Pipeline(
+        nodes=[Step(lambda x: {"y": x + 1}, inputs=["x"], outputs=["y"], name="bump", unpack=True)],
+        inputs=["x"],
+        outputs=["y"],
+    )
+    assert run(pipe, inputs={"x": 1}).outputs == {"y": 2}
+
+
+def test_without_unpack_a_mapping_is_the_value():
+    pipe = Pipeline(
+        nodes=[Step(lambda x: {"y": x + 1}, inputs=["x"], outputs=["pair"], name="bump")],
+        inputs=["x"],
+        outputs=["pair"],
+    )
+    assert run(pipe, inputs={"x": 1}).outputs == {"pair": {"y": 2}}
+
+
+def test_unpack_rejects_a_non_mapping():
+    pipe = Pipeline(
+        nodes=[Step(lambda x: x, inputs=["x"], outputs=["y"], name="same", unpack=True)],
+        inputs=["x"],
+        outputs=["y"],
+    )
+    with pytest.raises(RunError, match="expects a mapping"):
+        run(pipe, inputs={"x": 1})
+
+
+def test_unpack_extra_keys_warn_and_are_recorded():
+    def wide(x):
+        return {"y": x, "z": x}
+
+    pipe = Pipeline(nodes=[Step(wide, inputs=["x"], outputs=["y"], unpack=True)], inputs=["x"], outputs=["y"])
+    with pytest.warns(UnusedOutputWarning, match=r"\['z'\]"):
+        report = run(pipe, inputs={"x": 1})
+    assert report.outputs == {"y": 1}
+    assert report.tree["nodes"][0]["dropped"] == ["z"]
+
+
+def test_unpack_construction_rules():
+    with pytest.raises(ValueError, match="unpack=True"):
+        Step(add1, outputs=["a", "b"])
+    with pytest.raises(ValueError, match="at least one output"):
+        Step(add1, outputs=[], unpack=True)
+    with pytest.raises(TypeError, match="unpack must be a bool"):
+        Step(add1, outputs=["a"], unpack="yes")
+
+
+def test_map_partial_collect_warns_and_unknown_key_fails():
+    def split(n):
+        return {"double": n * 2, "half": n / 2}
+
+    body = Step(split, outputs=["double", "half"], unpack=True)
+    pipe = Pipeline(
+        nodes=[Step(numbers, outputs=["nums"]), Map(body, over="nums", item="n", collect={"double": "doubles"})],
+        outputs=["doubles"],
+    )
+    with pytest.warns(UnusedOutputWarning, match="'half' is not collected"):
+        report = run(pipe, inputs={})
+    assert report.outputs == {"doubles": [6, 2, 4]}
+
+    bad = Pipeline(
+        nodes=[Step(numbers, outputs=["nums"]), Map(body, over="nums", item="n", collect={"nope": "x"})],
+        outputs=["x"],
+    )
+    with pytest.raises(ValidationError, match="collect key 'nope'"):
+        bad.validate()
+
+
+def test_map_collect_list_form_and_duplicate_parent_key():
+    pipe = Pipeline(
+        nodes=[Step(numbers, outputs=["nums"]), Map(Step(add1, inputs=["x"]), over="nums", item="x", collect=["add1"])],
+        outputs=["add1"],
+    )
+    assert run(pipe, inputs={}).outputs == {"add1": [4, 2, 3]}
+    with pytest.raises(ValueError, match="same parent key"):
+        Map(Step(add1, inputs=["x"], outputs=["a", "b"], unpack=True), over="nums", item="x",
+            collect={"a": "same", "b": "same"})

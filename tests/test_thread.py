@@ -56,7 +56,7 @@ def test_thread_map_parallel_is_deterministic():
         nodes=[
             Step(lambda: [1, 2, 3, 4], outputs=["nums"], name="src"),
             Map(Step(slow_double, inputs=["n"], outputs=["out"]), over="nums", item="n",
-                collect="doubled", parallel=4),
+                collect={"out": "doubled"}, parallel=4),
         ],
         outputs=["doubled"],
     )
@@ -77,7 +77,7 @@ def test_thread_matches_serial():
                 Step(lambda words, lines: f"{words}/{lines}", inputs=["words", "lines"], outputs=["merged"], name="merge"),
                 Step(lambda: [1, 2, 3], outputs=["nums"], name="nums_src"),
                 Map(Step(lambda n: n * 3, inputs=["n"], outputs=["tripled"], name="triple"),
-                    over="nums", item="n", collect="tripled_list", parallel=3),
+                    over="nums", item="n", collect={"tripled": "tripled_list"}, parallel=3),
             ],
             outputs=["merged", "tripled_list"],
         )
@@ -105,7 +105,7 @@ def test_worker_limit_respected():
     pipe = Pipeline(
         nodes=[
             Step(lambda: list(range(6)), outputs=["nums"], name="src"),
-            Map(Step(task, inputs=["i"], outputs=["out"]), over="nums", item="i", collect="outs", parallel=6),
+            Map(Step(task, inputs=["i"], outputs=["out"]), over="nums", item="i", collect={"out": "outs"}, parallel=6),
         ],
         outputs=["outs"],
     )
@@ -130,7 +130,7 @@ def test_parallel_true_window_is_workers():
     pipe = Pipeline(
         nodes=[
             Step(lambda: list(range(5)), outputs=["nums"], name="src"),
-            Map(Step(body, inputs=["n"], outputs=["out"]), over="nums", item="n", collect="outs", parallel=True),
+            Map(Step(body, inputs=["n"], outputs=["out"]), over="nums", item="n", collect={"out": "outs"}, parallel=True),
         ],
         outputs=["outs"],
     )
@@ -174,7 +174,7 @@ def test_thread_map_failure_stops_new_iterations():
         nodes=[
             Step(lambda: [0, 1, 2, 3, 4, 5], outputs=["nums"], name="src"),
             Map(Step(maybe_boom, inputs=["i"], outputs=["out"]), over="nums", item="i",
-                collect="outs", parallel=2, name="mapper"),
+                collect={"out": "outs"}, parallel=2, name="mapper"),
         ],
         outputs=["outs"],
     )
@@ -189,7 +189,7 @@ def test_thread_events_intact():
         nodes=[
             Step(lambda: [1, 2, 3], outputs=["nums"], name="src"),
             Map(Step(lambda n: n + 1, inputs=["n"], outputs=["bumped"], name="bump"),
-                over="nums", item="n", collect="bumped_list", parallel=3, name="mapper"),
+                over="nums", item="n", collect={"bumped": "bumped_list"}, parallel=3, name="mapper"),
         ],
         outputs=["bumped_list"],
     )

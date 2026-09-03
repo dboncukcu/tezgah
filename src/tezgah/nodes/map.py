@@ -1,7 +1,7 @@
 import time
 
 from ..errors import ContractError
-from .base import Node, as_node, child_path, node_executor, node_label, str_list
+from .base import Node, as_node, child_path, key_map, node_executor, node_label, str_list
 
 
 class Map(Node):
@@ -23,9 +23,10 @@ class Map(Node):
         if index == item:
             raise ValueError(f"{label}: item and index cannot share the name '{item}'")
         self.index = index
-        if collect is not None and not isinstance(collect, str):
-            raise TypeError(f"{label}: collect must be a bus key string, got {type(collect).__name__}")
-        self.collect = collect
+        self.collect = key_map(collect, label, "collect")
+        parent_keys = list(self.collect.values())
+        if len(set(parent_keys)) != len(parent_keys):
+            raise ValueError(f"{label}: two collect entries write the same parent key {parent_keys}")
 
         if isinstance(parallel, bool):
             self.parallel = parallel
@@ -47,7 +48,7 @@ class Map(Node):
         return list(dict.fromkeys([self.over] + self.broadcast_keys()))
 
     def writes(self):
-        return [self.collect] if self.collect else []
+        return list(self.collect.values())
 
     def window(self, kernel):
         if isinstance(self.parallel, bool):
@@ -66,7 +67,7 @@ class Map(Node):
 
         broadcast = {key: values[key] for key in self.broadcast_keys()}
         body_pool = self.body.executor or self.executor or pool
-        results: list = [None] * len(items)
+        results = {outer: [None] * len(items) for outer in self.collect.values()}
         records: list = [None] * len(items)
         flying = {}
         next_index = 0
@@ -93,18 +94,11 @@ class Map(Node):
                 if status == "failed":
                     broken = True
                     continue
-                results[i] = self._collect(written)
+                for inner, outer in self.collect.items():
+                    results[outer][i] = written[inner]
 
         ms = (time.perf_counter() - start) * 1000
         status = "failed" if broken else "ok"
-        written = {self.collect: results} if self.collect and status == "ok" else {}
+        written = dict(results) if status == "ok" else {}
         extra = {"count": len(items), "iterations": records}
         return status, written, ms, extra
-
-    def _collect(self, written):
-        outputs = self.body.writes()
-        if not outputs:
-            return None
-        if len(outputs) == 1:
-            return written[outputs[0]]
-        return dict(written)

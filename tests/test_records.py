@@ -181,7 +181,7 @@ def test_map_iterations_in_nodes(tmp_path):
         nodes=[
             Step(lambda: [1, 2], outputs=["nums"], name="src"),
             Map(Step(lambda n: n + 1, inputs=["n"], outputs=["out"], name="bump"),
-                over="nums", item="n", collect="doubled", name="mapper"),
+                over="nums", item="n", collect={"out": "doubled"}, name="mapper"),
         ],
         outputs=["doubled"],
     )

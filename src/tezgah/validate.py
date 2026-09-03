@@ -111,10 +111,12 @@ def _check_map(node, path, problems, unused, ancestors):
     overlap = sorted(set(node.body.writes()) & frame_keys)
     if overlap:
         problems.append(f"{path}: body writes {overlap} but those keys already exist in the iteration frame (item, index, broadcast)")
-    if node.collect and not node.body.writes():
-        problems.append(f"{path}: collect was requested but the body produces no outputs")
-    if not node.collect and node.body.writes():
-        unused.append(f"{path}: body outputs are discarded (collect not set)")
+    body_writes = set(node.body.writes())
+    for inner in node.collect:
+        if inner not in body_writes:
+            problems.append(f"{path}: collect key '{inner}' is not produced by the body")
+    for key in sorted(body_writes - set(node.collect)):
+        unused.append(f"{path}: body output '{key}' is not collected")
 
     _check_node(node.body, path, problems, unused, ancestors)
 

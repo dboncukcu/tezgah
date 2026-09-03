@@ -8,7 +8,7 @@ import warnings
 from concurrent import futures as _futures
 from datetime import datetime
 
-from .errors import RunError, ValidationError
+from .errors import RunError, UnusedOutputWarning, ValidationError
 from .executors import resolve_executor
 from .nodes import Pipeline
 
@@ -101,6 +101,12 @@ class Kernel:
             self.emit(path, "failed", node=node.name, status="failed", ms=0, error=record["error"])
             return "failed", {}, record
         record = {"node": node.name, "path": path, "status": status, "ms": round(ms, 3), **extra}
+        if extra.get("dropped"):
+            warnings.warn(
+                f"{path}: '{node.name}' returned keys {extra['dropped']} that are not declared outputs",
+                UnusedOutputWarning,
+                stacklevel=2,
+            )
         if status == "skipped":
             self.emit(path, "skipped", node=node.name, status="skipped")
         else:

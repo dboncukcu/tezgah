@@ -149,7 +149,7 @@ def test_map_through_custom_pool():
         nodes=[
             Step(lambda: [1, 2, 3], outputs=["nums"], name="src"),
             Map(Step(lambda n: n * 2, inputs=["n"], outputs=["out"], name="double"),
-                over="nums", item="n", collect="outs", parallel=3),
+                over="nums", item="n", collect={"out": "outs"}, parallel=3),
         ],
         outputs=["outs"],
     )

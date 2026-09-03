@@ -87,7 +87,7 @@ def test_dask_map_collect_order():
         nodes=[
             Step(lambda: [3, 1, 2], outputs=["nums"], name="src"),
             Map(Step(slow_double, outputs=["out"]), over="nums", item="n",
-                collect="doubled", parallel=3),
+                collect={"out": "doubled"}, parallel=3),
         ],
         outputs=["doubled"],
     )
@@ -100,7 +100,7 @@ def test_dask_map_matches_serial():
         return Pipeline(
             nodes=[
                 Step(lambda: [1, 2, 3], outputs=["nums"], name="src"),
-                Map(Step(slow_double, outputs=["out"]), over="nums", item="n", collect="outs", parallel=3),
+                Map(Step(slow_double, outputs=["out"]), over="nums", item="n", collect={"out": "outs"}, parallel=3),
             ],
             outputs=["outs"],
         )
